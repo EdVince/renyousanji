@@ -140,6 +140,7 @@ export default class Main {
     this.partitionType = PARTITION_NONE; // 当前隔板类型
     this.signMode = 0;          // 当前标语模式
     this.childUrinalPos = CHILD_NONE; // 当前儿童尿兜位置
+    this.endureCount = 0;       // 连续"忍"的次数
     this.initScene();
     this.bindTouch();
     this.loop();
@@ -209,6 +210,7 @@ export default class Main {
     db.bubble = null;
     db.playerAnim = null;
     db.rejectAnim = null;
+    db.explosion = null;
     db.state = 'IDLE';
     db.frame = 0;
   }
@@ -242,6 +244,14 @@ export default class Main {
       const skipBx = SCREEN_WIDTH / 2 - 100;
       const skipBy = SCREEN_HEIGHT - 60;
       if (x >= skipBx && x <= skipBx + 200 && y >= skipBy && y <= skipBy + 44) {
+        this.endureCount++;
+        if (this.endureCount >= 4) {
+          // 第四次忍：爆炸效果
+          this.endureCount = 0;
+          db.state = 'EXPLODING';
+          db.explosion = { frame: 0, maxFrames: 80 };
+          return;
+        }
         this.initScene();
         return;
       }
@@ -251,6 +261,9 @@ export default class Main {
         const hx = x >= u.x - 10 && x <= u.x + u.width + 10;
         const hy = y >= u.y - 10 && y <= PERSON_FEET + 10;
         if (!hx || !hy) continue;
+
+        // 点击尿兜即"不忍"，清空忍次数
+        this.endureCount = 0;
 
         if (!u.occupied) {
           // 成功
@@ -322,6 +335,14 @@ export default class Main {
       db.bubble.timer--;
       if (db.bubble.timer <= 0) db.bubble = null;
     }
+
+    // 爆炸动画更新
+    if (db.state === 'EXPLODING' && db.explosion) {
+      db.explosion.frame++;
+      if (db.explosion.frame >= db.explosion.maxFrames) {
+        this.initScene();
+      }
+    }
   }
 
   // ==================== 渲染 ====================
@@ -350,7 +371,12 @@ export default class Main {
       ctx.fillStyle = overlay;
       ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     }
-    // ⑨ UI（提示 + 按钮）
+    // ⑨ 爆炸效果（覆盖在其他图层之上）
+    if (GameGlobal.databus.state === 'EXPLODING') {
+      this.drawExplosion(ctx);
+      return; // 爆炸时不再绘制其他 UI
+    }
+    // ⑩ UI（提示 + 按钮）
     this.drawUI(ctx);
   }
 
@@ -800,11 +826,104 @@ export default class Main {
     ctx.fillText('文明一大步', cx, signY + signH - 10);
   }
 
+  // ==================== 爆炸效果 ====================
+  drawExplosion(ctx) {
+    const exp = GameGlobal.databus.explosion;
+    if (!exp) return;
+    const progress = Math.min(exp.frame / exp.maxFrames, 1);
+
+    // 屏幕闪烁（前 15 帧白色闪烁）
+    if (exp.frame < 15) {
+      ctx.fillStyle = `rgba(255,255,255,${1 - exp.frame / 15})`;
+      ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    }
+
+    // 爆炸冲击波（径向扩散圆环）
+    const cx = SCREEN_WIDTH / 2;
+    const cy = SCREEN_HEIGHT / 2;
+    const maxRadius = Math.max(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.7;
+    const radius = progress * maxRadius;
+
+    // 外圈光晕
+    ctx.save();
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    const alpha = progress < 0.3 ? 1 : Math.max(0, 1 - (progress - 0.3) / 0.7);
+    grad.addColorStop(0, `rgba(255,200,50,${alpha * 0.8})`);
+    grad.addColorStop(0.5, `rgba(255,100,0,${alpha * 0.5})`);
+    grad.addColorStop(1, `rgba(200,50,0,0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 内圈明亮核心
+    if (progress < 0.4) {
+      const coreAlpha = Math.max(0, 1 - progress / 0.4);
+      ctx.fillStyle = `rgba(255,255,200,${coreAlpha * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 粒子效果（小方块飞溅）
+    const particleCount = 30;
+    for (let i = 0; i < particleCount; i++) {
+      const angle = (i / particleCount) * Math.PI * 2 + progress * 0.5;
+      const dist = radius * (0.4 + progress * 0.8);
+      const px = cx + Math.cos(angle) * dist;
+      const py = cy + Math.sin(angle) * dist;
+      const size = 3 + Math.random() * 4;
+      const colors = ['#FF6B35', '#FFD700', '#FF4500', '#FF8C00', '#FFFF00'];
+      ctx.globalAlpha = (1 - progress) * 0.9;
+      ctx.fillStyle = colors[i % colors.length];
+      ctx.fillRect(px, py, size, size);
+    }
+    ctx.restore();
+
+    // 屏幕震动（前 30 帧）
+    if (exp.frame < 30) {
+      const shake = (30 - exp.frame) * 0.8;
+      ctx.fillStyle = 'rgba(0,0,0,0)'; // placeholder for shake visual
+    }
+
+    // "忍不住啦！" 文字（从第 20 帧开始显示）
+    if (exp.frame >= 20) {
+      const textAlpha = Math.min(1, (exp.frame - 20) / 15);
+      const scale = 1 + Math.sin(exp.frame * 0.1) * 0.05;
+      ctx.save();
+      ctx.globalAlpha = textAlpha;
+      ctx.translate(cx, cy);
+      ctx.scale(scale, scale);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 48px sans-serif';
+      ctx.strokeStyle = '#CC3300';
+      ctx.lineWidth = 6;
+      ctx.strokeText('忍不住啦！', 0, 0);
+      ctx.fillStyle = '#FF4444';
+      ctx.fillText('忍不住啦！', 0, 0);
+      ctx.restore();
+    }
+  }
+
   // ==================== UI ====================
   drawUI(ctx) {
     const db = GameGlobal.databus;
 
     if (db.state === 'IDLE') {
+      // 显示连续"忍"的次数（左上角）
+      if (this.endureCount > 0) {
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        roundRect(ctx, 8, 8, 74, 30, 8);
+        ctx.fill();
+
+        ctx.fillStyle = '#E65100';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`忍 ×${this.endureCount}`, 18, 23);
+      }
+
       ctx.fillStyle = C.titleColor;
       ctx.font = '15px sans-serif';
       ctx.textAlign = 'center';
