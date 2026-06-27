@@ -31,6 +31,8 @@ const C = {
 
 const PRAISE = ['完美！','明智之选！','懂得都懂！','讲究！','标准答案！','稳！','真男人！','有品位！'];
 const REJECT_MSG = ['？','…','?!','喂！','看啥呢'];
+const SICK_MSG = '有病吧';
+const PERV_MSG = '变态';
 
 const NPC_STYLES = [
   { hat:'#4A90D9', shirt:'#3498DB', hair:'#8B4513' },
@@ -207,11 +209,12 @@ export default class Main {
     }
 
     db.urinals = urinals;
-    db.bubble = null;
+    db.bubbles = [];
     db.playerAnim = null;
     db.rejectAnim = null;
     db.explosion = null;
     db.state = 'IDLE';
+    db.isPervert = false;
     db.frame = 0;
   }
 
@@ -246,7 +249,6 @@ export default class Main {
       if (x >= skipBx && x <= skipBx + 200 && y >= skipBy && y <= skipBy + 44) {
         this.endureCount++;
         if (this.endureCount >= 4) {
-          // 第四次忍：爆炸效果
           this.endureCount = 0;
           db.state = 'EXPLODING';
           db.explosion = { frame: 0, maxFrames: 80 };
@@ -256,44 +258,70 @@ export default class Main {
         return;
       }
 
+      this.endureCount = 0;
+
+      // 检查是否点击了某个尿兜范围
+      let hitUrinal = null;
       for (const u of db.urinals) {
-        // 点击区域：尿兜 + 前方人物站立范围
         const hx = x >= u.x - 10 && x <= u.x + u.width + 10;
         const hy = y >= u.y - 10 && y <= PERSON_FEET + 10;
-        if (!hx || !hy) continue;
+        if (hx && hy) { hitUrinal = u; break; }
+      }
 
-        // 点击尿兜即"不忍"，清空忍次数
-        this.endureCount = 0;
-
-        if (!u.occupied) {
-          // 成功
-          db.state = 'ANIMATING';
-          db.playerAnim = {
-            progress: 0,
-            targetCx: u.cx,
-          };
-          db.bubble = null;
-        } else {
-          // 拒绝
-          db.state = 'REJECTING';
-          db.rejectAnim = { urinalId: u.id, timer: 50 };
-          const msg = REJECT_MSG[Math.floor(Math.random() * REJECT_MSG.length)];
+      if (hitUrinal && !hitUrinal.occupied) {
+        // 类型1：选择了空尿兜 — 走入 + 夸赞（原行为）
+        db.isPervert = false;
+        db.state = 'ANIMATING';
+        db.playerAnim = { progress: 0, targetCx: hitUrinal.cx };
+        db.bubbles = [];
+        db.rejectAnim = null;
+      } else if (hitUrinal && hitUrinal.occupied) {
+        // 类型2：选择了有人的尿兜 — 玩家走入 + NPC 说"有病吧/变态"
+        db.isPervert = true;
+        db.state = 'ANIMATING';
+        db.playerAnim = { progress: 0, targetCx: hitUrinal.cx };
+        db.rejectAnim = { urinalId: hitUrinal.id, timer: 999 };
+        db.bubbles = [];
+        for (const u of db.urinals) {
+          if (!u.occupied) continue;
+          const msg = u.id === hitUrinal.id ? SICK_MSG : PERV_MSG;
           const npcScale = u.style ? u.style.heightScale || 1 : 1;
-          db.bubble = {
+          db.bubbles.push({
             text: msg,
             x: u.cx,
             y: Math.round(PERSON_FEET - 94 * npcScale - 10),
-            timer: 45,
+            timer: 999,
             isReject: true,
-          };
-          this.music.playReject();
+          });
         }
-        break;
+        this.music.playReject();
+      } else {
+        // 类型3：点击了非尿兜区域 — 玩家走入点击位置 + 所有 NPC 说"变态"
+        db.isPervert = true;
+        db.state = 'ANIMATING';
+        // 玩家水平走到点击位置，限制在屏幕范围内避免走出边界
+        const playerX = Math.max(PHW + 10, Math.min(x, SCREEN_WIDTH - PHW - 10));
+        db.playerAnim = { progress: 0, targetCx: playerX };
+        db.rejectAnim = { urinalId: -1, timer: 999 };
+        db.bubbles = [];
+        for (const u of db.urinals) {
+          if (!u.occupied) continue;
+          const npcScale = u.style ? u.style.heightScale || 1 : 1;
+          db.bubbles.push({
+            text: PERV_MSG,
+            x: u.cx,
+            y: Math.round(PERSON_FEET - 94 * npcScale - 10),
+            timer: 999,
+            isReject: true,
+          });
+        }
+        if (db.bubbles.length > 0) this.music.playReject();
       }
     } else if (db.state === 'DONE') {
-      const bx = SCREEN_WIDTH / 2 - 70;
+      const btnW = db.isPervert ? 160 : 140;
+      const bx = SCREEN_WIDTH / 2 - btnW / 2;
       const by = SCREEN_HEIGHT - 60;
-      if (x >= bx && x <= bx + 140 && y >= by && y <= by + 44) {
+      if (x >= bx && x <= bx + btnW && y >= by && y <= by + 44) {
         this.initScene();
       }
     }
@@ -309,31 +337,21 @@ export default class Main {
       if (db.playerAnim.progress >= 1) {
         db.playerAnim.progress = 1;
         db.state = 'DONE';
-        const msg = PRAISE[Math.floor(Math.random() * PRAISE.length)];
-        const target = db.urinals.find(u => u.cx === db.playerAnim.targetCx);
-        db.bubble = {
-          text: msg,
-          x: target.cx,
-          y: PERSON_FEET - 111,
-          timer: 9999,
-          isReject: false,
-        };
-        this.music.playSuccess();
+        if (!db.isPervert) {
+          // 类型1：显示夸赞气泡，播放成功音效
+          const msg = PRAISE[Math.floor(Math.random() * PRAISE.length)];
+          const target = db.urinals.find(u => u.cx === db.playerAnim.targetCx);
+          db.bubbles = [{
+            text: msg,
+            x: target.cx,
+            y: PERSON_FEET - 111,
+            timer: 9999,
+            isReject: false,
+          }];
+          this.music.playSuccess();
+        }
+        // 类型2/3：保持已有的 NPC 气泡不变，不播放成功音效
       }
-    }
-
-    if (db.state === 'REJECTING' && db.rejectAnim) {
-      db.rejectAnim.timer--;
-      if (db.rejectAnim.timer <= 0) {
-        db.state = 'IDLE';
-        db.rejectAnim = null;
-        db.bubble = null;
-      }
-    }
-
-    if (db.bubble && db.bubble.isReject) {
-      db.bubble.timer--;
-      if (db.bubble.timer <= 0) db.bubble = null;
     }
 
     // 爆炸动画更新
@@ -364,7 +382,11 @@ export default class Main {
       this.drawPlayer(ctx);
     }
     // ⑦ 气泡
-    if (GameGlobal.databus.bubble) this.drawBubble(ctx, GameGlobal.databus.bubble);
+    if (GameGlobal.databus.bubbles.length > 0) {
+      for (const b of GameGlobal.databus.bubbles) {
+        this.drawBubble(ctx, b);
+      }
+    }
     // ⑧ 场景亮度遮罩
     const overlay = BRIGHTNESS_LEVELS[this.brightness].overlay;
     if (overlay) {
@@ -551,8 +573,10 @@ export default class Main {
       if (!u.occupied) continue;
 
       const bob = Math.sin(GameGlobal.databus.frame * 0.04 + u.personIdlePhase) * 1.5;
-      const isReject = GameGlobal.databus.rejectAnim && GameGlobal.databus.rejectAnim.urinalId === u.id;
-      const turn = isReject ? Math.min((50 - GameGlobal.databus.rejectAnim.timer) / 20, 1) : 0;
+      const isReject = GameGlobal.databus.rejectAnim
+        && GameGlobal.databus.rejectAnim.urinalId >= 0
+        && GameGlobal.databus.rejectAnim.urinalId === u.id;
+      const turn = isReject ? Math.min((999 - GameGlobal.databus.rejectAnim.timer) / 24, 1) : 0;
 
       this.drawPersonBack(ctx, u.cx, PERSON_FEET + bob, u.style, turn);
     }
@@ -928,7 +952,7 @@ export default class Main {
       ctx.font = '15px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText('点击选择一个空位...', SCREEN_WIDTH / 2, 16);
+      ctx.fillText('随便点个地方...', SCREEN_WIDTH / 2, 16);
 
       // "忍一时风平浪静" 跳过按钮
       const bx = SCREEN_WIDTH / 2 - 100;
@@ -955,9 +979,10 @@ export default class Main {
     }
 
     if (db.state === 'DONE') {
-      const bx = SCREEN_WIDTH / 2 - 70;
+      const btnW = db.isPervert ? 160 : 140;
+      const bx = SCREEN_WIDTH / 2 - btnW / 2;
       const by = SCREEN_HEIGHT - 60;
-      const bw = 140, bh = 44;
+      const bw = btnW, bh = 44;
 
       ctx.fillStyle = 'rgba(0,0,0,0.15)';
       roundRect(ctx, bx + 2, by + 2, bw, bh, 10);
@@ -975,7 +1000,8 @@ export default class Main {
       ctx.font = 'bold 18px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('下一泡', SCREEN_WIDTH / 2, by + bh / 2);
+      const btnText = db.isPervert ? '我是变态' : '下一泡';
+      ctx.fillText(btnText, SCREEN_WIDTH / 2, by + bh / 2);
     }
   }
 

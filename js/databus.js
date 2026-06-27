@@ -18,7 +18,8 @@ export default class DataBus {
     this.urinals = [];           // 尿兜数组
     this.playerAnim = null;      // 玩家动画状态
     this.rejectAnim = null;      // 被拒动画状态
-    this.bubble = null;          // 气泡文字
+    this.bubbles = [];           // 气泡文字数组
+    this.isPervert = false;      // 是否为变态模式（类型2/3）
     this.frame = 0;
   }
 }
