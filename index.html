@@ -7,6 +7,12 @@
 <style>
   * { margin: 0; padding: 0; }
   html, body { overflow: hidden; background: #000; }
+  canvas {
+    touch-action: none;          /* 禁止触摸滚动/缩放，避免与点击冲突 */
+    -webkit-touch-callout: none; /* 禁止长按弹出保存图片菜单 */
+    -webkit-user-select: none;
+    user-select: none;
+  }
 </style>
 </head>
 <body>

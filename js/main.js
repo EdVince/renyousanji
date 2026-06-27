@@ -1,4 +1,4 @@
-import { SCREEN_WIDTH, SCREEN_HEIGHT, canvas } from './render.js';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, canvas, viewportToCanvas } from './render.js';
 import DataBus from './databus.js';
 import Music from './runtime/music.js';
 
@@ -229,11 +229,19 @@ export default class Main {
     document.addEventListener('pointerdown', startAudio);
     document.addEventListener('touchstart', startAudio, { passive: true });
 
+    // 移动端单次触摸会先后触发 touchstart 与 pointerdown，需去重，
+    // 否则一次点击会被 handleTap 处理两次（例如点"下一泡"会连刷两关、点"忍"计数翻倍）。
+    let lastTapTime = 0;
+    const TAP_DEDUP_MS = 350;
     const handler = (e) => {
       e.preventDefault();
+      const now = performance.now();
+      if (now - lastTapTime < TAP_DEDUP_MS) return;
+      lastTapTime = now;
       const clientX = e.clientX !== undefined ? e.clientX : e.touches[0].clientX;
       const clientY = e.clientY !== undefined ? e.clientY : e.touches[0].clientY;
-      this.handleTap(clientX, clientY);
+      const { x, y } = viewportToCanvas(clientX, clientY);
+      this.handleTap(x, y);
     };
     canvas.addEventListener('pointerdown', handler);
     canvas.addEventListener('touchstart', handler, { passive: false });
