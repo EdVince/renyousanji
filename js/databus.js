@@ -21,5 +21,6 @@ export default class DataBus {
     this.bubbles = [];           // 气泡文字数组
     this.isPervert = false;      // 是否为变态模式（类型2/3）
     this.frame = 0;
+    this.playerStyle = null;     // 玩家角色外观
   }
 }

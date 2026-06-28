@@ -29,6 +29,88 @@ const C = {
   titleColor: '#555555',
 };
 
+// ==================== 玩家角色预设 ====================
+const PLAYER_PRESETS = [
+  {
+    name: '黑皮体育生',
+    skin: '#8B5E3C',
+    shirt: '#FFFFFF',
+    pants: '#8B5E3C',
+    shoes: '#FFFFFF',
+    hair: '#1A0E00',
+    hat: null,
+    build: 0,
+    heightScale: 1.20,
+    hairStyle: 'crew',
+    isBald: false,
+    hasBeard: false,
+    isPlaid: false,
+  },
+  {
+    name: '圆脸络腮胡',
+    skin: '#FFDAB9',
+    shirt: '#FFFFFF',
+    pants: '#4A4A4A',
+    shoes: '#FFFFFF',
+    hair: '#2C1810',
+    hat: null,
+    build: 2,
+    heightScale: 1.0,
+    hairStyle: 'crew',
+    isBald: false,
+    hasBeard: true,
+    isPlaid: false,
+  },
+  {
+    name: '精神帅小伙',
+    skin: '#FFDAB9',
+    shirt: '#FFD700',
+    pants: '#FFD700',
+    shoes: '#333333',
+    hair: '#FFD700',
+    hat: null,
+    build: 0,
+    heightScale: 1.0,
+    hairStyle: 'normal',
+    isBald: false,
+    hasBeard: false,
+    isPlaid: false,
+  },
+  {
+    name: '资深程序员',
+    skin: '#FFDAB9',
+    shirt: '#B0C4DE',
+    pants: '#808080',
+    shoes: '#333333',
+    hair: null,
+    hat: null,
+    build: 1,
+    heightScale: 1.0,
+    hairStyle: 'bald',
+    isBald: true,
+    hasBeard: false,
+    isPlaid: true,
+  },
+  {
+    name: '清纯男大',
+    skin: '#FFDAB9',
+    shirt: '#87CEEB',
+    pants: '#4169E1',
+    shoes: '#333333',
+    hair: '#4A3728',
+    hat: null,
+    build: 1,
+    heightScale: 1.0,
+    hairStyle: 'normal',
+    isBald: false,
+    hasBeard: false,
+    isPlaid: false,
+  },
+  {
+    name: '随机',
+  },
+];
+
 const PRAISE = ['完美！','明智之选！','懂得都懂！','讲究！','标准答案！','稳！','真男人！','有品位！'];
 const REJECT_MSG = ['？','…','?!','喂！','看啥呢'];
 const SICK_MSG = '有病吧';
@@ -138,12 +220,8 @@ export default class Main {
   constructor() {
     GameGlobal.databus = new DataBus();
     this.music = new Music();
-    this.brightness = 0;        // 当前场景亮度
-    this.partitionType = PARTITION_NONE; // 当前隔板类型
-    this.signMode = 0;          // 当前标语模式
-    this.childUrinalPos = CHILD_NONE; // 当前儿童尿兜位置
     this.endureCount = 0;       // 连续"忍"的次数
-    this.initScene();
+    GameGlobal.databus.state = 'SELECTING';
     this.bindTouch();
     this.loop();
   }
@@ -250,6 +328,28 @@ export default class Main {
   handleTap(x, y) {
     const db = GameGlobal.databus;
 
+    if (db.state === 'SELECTING') {
+      // 角色选择 - 计算点击的卡片
+      const GAP = 16;
+      const CARD_W = 130;
+      const CARD_H = 155;
+      const cols = 3;
+      const totalW = cols * CARD_W + (cols - 1) * GAP;
+      const totalH = 2 * CARD_H + GAP;
+      const startX = (SCREEN_WIDTH - totalW) / 2;
+      const startY = (SCREEN_HEIGHT - totalH) / 2 + 20;
+
+      const col = Math.floor((x - startX) / (CARD_W + GAP));
+      const row = Math.floor((y - startY) / (CARD_H + GAP));
+      if (col >= 0 && col < 3 && row >= 0 && row < 2) {
+        const idx = row * 3 + col;
+        if (idx >= 0 && idx < 6) {
+          this.selectCharacter(idx);
+        }
+      }
+      return;
+    }
+
     if (db.state === 'IDLE') {
       // "忍一时风平浪静" 跳过按钮
       const skipBx = SCREEN_WIDTH / 2 - 100;
@@ -335,6 +435,18 @@ export default class Main {
     }
   }
 
+  /** 选中角色 */
+  selectCharacter(index) {
+    const db = GameGlobal.databus;
+    // "随机"选项（index=5）从其他5个中随机抽取
+    let realIdx = index;
+    if (index === 5) {
+      realIdx = Math.floor(Math.random() * 5);
+    }
+    db.playerStyle = Object.assign({}, PLAYER_PRESETS[realIdx]);
+    this.initScene();
+  }
+
   // ---------- 更新 ----------
   update() {
     const db = GameGlobal.databus;
@@ -374,6 +486,11 @@ export default class Main {
   // ==================== 渲染 ====================
   render(ctx) {
     ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+    if (GameGlobal.databus.state === 'SELECTING') {
+      this.drawSelectionScreen(ctx);
+      return;
+    }
 
     // ① 背景（墙 + 地板）
     this.drawBackground(ctx);
@@ -701,6 +818,10 @@ export default class Main {
     const anim = GameGlobal.databus.playerAnim;
     if (!anim) return;
 
+    const style = GameGlobal.databus.playerStyle || {};
+    const scale = style.heightScale || 1;
+    const bf = [0.78, 1.0, 1.28][style.build] || 1.0;
+
     const p = anim.progress;
     // 缓动
     const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
@@ -713,30 +834,39 @@ export default class Main {
     const walkBob = p < 1 ? Math.sin(p * Math.PI * 5) * 2.5 : 0;
     const armSw = p < 1 ? Math.sin(p * Math.PI * 5) * 5 : 0;
 
-    const h = 96;                    // 实际绘制总高度（各部分和为96px）
-    const hw = PHW;
+    const h = 96 * scale;        // 实际绘制总高度
+    const hw = PHW * bf;
     const hatTop   = feetY - h + walkBob;
-    const headTop  = hatTop + 8;
-    const neckTop  = headTop + 18;
-    const bodyTop  = neckTop + 4;
-    const bodyBot  = bodyTop + 40;
+    const headTop  = hatTop + Math.round(8 * scale);
+    const neckTop  = headTop + Math.round(18 * scale);
+    const bodyTop  = neckTop + Math.round(4 * scale);
+    const bodyBot  = bodyTop + Math.round(40 * scale);
     const legTop   = bodyBot;
-    const legBot   = legTop + 20;
+    const legBot   = legTop + Math.round(20 * scale);
+
+    const skinColor = style.skin || C.skin;
+    const shirtColor = style.shirt || C.playerShirt;
+    const pantsColor = style.pants || C.playerPants;
+    const shoeColor = style.shoes || C.shoes;
+
+    const shoulderW = Math.round((hw + 4));
+    const waistW = Math.round((hw - 2));
+    const armLen = Math.round(30 * scale);
+    const armW = Math.round(6 * bf);
 
     // 鞋
-    ctx.fillStyle = C.shoes;
-    ctx.fillRect(cx - 8, legBot, 7, 6);
-    ctx.fillRect(cx + 1, legBot, 7, 6);
+    ctx.fillStyle = shoeColor;
+    ctx.fillRect(cx - Math.round(8 * bf), legBot, Math.round(7 * bf), Math.round(6 * scale));
+    ctx.fillRect(cx + Math.round(1 * bf), legBot, Math.round(7 * bf), Math.round(6 * scale));
 
-    // 裤腿（浅蓝色牛仔裤）
-    ctx.fillStyle = C.playerPants;
-    ctx.fillRect(cx - 9, legTop, 8, legBot - legTop);
-    ctx.fillRect(cx + 1, legTop, 8, legBot - legTop);
+    // 裤腿
+    ctx.fillStyle = pantsColor;
+    const legW = Math.round(8 * bf);
+    ctx.fillRect(cx - Math.round(9 * bf), legTop, legW, Math.round(legBot - legTop));
+    ctx.fillRect(cx + Math.round(1 * bf), legTop, legW, Math.round(legBot - legTop));
 
     // 上衣
-    ctx.fillStyle = C.playerShirt;
-    const shoulderW = hw + 4;
-    const waistW = hw - 2;
+    ctx.fillStyle = shirtColor;
     ctx.beginPath();
     ctx.moveTo(cx - shoulderW, bodyTop);
     ctx.lineTo(cx + shoulderW, bodyTop);
@@ -745,35 +875,62 @@ export default class Main {
     ctx.closePath();
     ctx.fill();
 
+    // 格子衫图案
+    if (style.isPlaid) {
+      ctx.strokeStyle = '#778899';
+      ctx.lineWidth = 1;
+      const step = Math.round(6 * bf);
+      for (let x = cx - shoulderW; x <= cx + shoulderW; x += Math.max(step, 3)) {
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x), bodyTop);
+        ctx.lineTo(Math.round(x), bodyBot);
+        ctx.stroke();
+      }
+      for (let y = bodyTop; y <= bodyBot; y += Math.round(6 * scale)) {
+        ctx.beginPath();
+        ctx.moveTo(cx - shoulderW, Math.round(y));
+        ctx.lineTo(cx + shoulderW, Math.round(y));
+        ctx.stroke();
+      }
+    }
+
     // 手臂（摆动）
-    ctx.fillStyle = C.playerShirt;
-    ctx.fillRect(cx - shoulderW - 4, bodyTop + 2 - armSw, 6, 30);
-    ctx.fillRect(cx + shoulderW - 2, bodyTop + 2 + armSw, 6, 30);
+    ctx.fillStyle = shirtColor;
+    ctx.fillRect(cx - shoulderW - armW, Math.round(bodyTop + 2 * scale - armSw), armW, armLen);
+    ctx.fillRect(cx + shoulderW, Math.round(bodyTop + 2 * scale + armSw), armW, armLen);
 
     // 手
-    ctx.fillStyle = C.skin;
-    ctx.fillRect(cx - shoulderW - 3, bodyTop + 28 - armSw, 5, 6);
-    ctx.fillRect(cx + shoulderW - 1, bodyTop + 28 + armSw, 5, 6);
+    ctx.fillStyle = skinColor;
+    ctx.fillRect(cx - shoulderW - armW + 1, Math.round(bodyTop + 2 * scale + armLen - 6 * scale - armSw), Math.max(armW - 1, 1), Math.round(6 * scale));
+    ctx.fillRect(cx + shoulderW, Math.round(bodyTop + 2 * scale + armLen - 6 * scale + armSw), Math.max(armW - 1, 1), Math.round(6 * scale));
 
     // 脖子
-    ctx.fillStyle = C.skin;
-    ctx.fillRect(cx - 4, neckTop, 8, bodyTop - neckTop);
+    ctx.fillStyle = skinColor;
+    const neckW = Math.round(8 * bf);
+    ctx.fillRect(cx - Math.round(neckW / 2), neckTop, neckW, Math.round(bodyTop - neckTop));
 
     // 头
-    ctx.fillStyle = C.skin;
-    ctx.fillRect(cx - 10, headTop, 20, 18);
+    ctx.fillStyle = skinColor;
+    const headW = Math.round(20 * bf);
+    const headH = Math.round(18 * scale);
+    ctx.fillRect(cx - Math.round(headW / 2), headTop, headW, headH);
 
     // 头发
-    ctx.fillStyle = '#8B4513';
-    ctx.fillRect(cx - 9, headTop + 1, 18, 5);
+    const hairColor = style.hair;
+    if (hairColor && style.hairStyle !== 'bald') {
+      ctx.fillStyle = hairColor;
+      if (style.hairStyle === 'crew') {
+        ctx.fillRect(cx - Math.round(headW / 2) + 1, headTop + 1, headW - 2, Math.round(3 * scale));
+      } else {
+        ctx.fillRect(cx - Math.round(headW / 2) + 1, headTop + 1, headW - 2, Math.round(5 * scale));
+      }
+    }
 
-    // 棒球帽
-    ctx.fillStyle = C.playerHat;
-    ctx.fillRect(cx - 11, hatTop, 22, 8);
-    ctx.fillRect(cx - 8, hatTop - 5, 16, 6);
-
-    // 帽檐（朝右，朝向尿兜方向）
-    ctx.fillRect(cx + 6, hatTop - 3, 9, 4);
+    // 络腮胡
+    if (style.hasBeard) {
+      ctx.fillStyle = '#4A3728';
+      ctx.fillRect(cx - Math.round(headW / 2) + 3, Math.round(headTop + headH * 0.55), headW - 6, Math.round(8 * scale));
+    }
   }
 
   // ==================== 气泡 ====================
@@ -1010,6 +1167,167 @@ export default class Main {
       ctx.textBaseline = 'middle';
       const btnText = db.isPervert ? '我是变态' : '下一泡';
       ctx.fillText(btnText, SCREEN_WIDTH / 2, by + bh / 2);
+    }
+  }
+
+  // ==================== 角色选择画面 ====================
+  drawSelectionScreen(ctx) {
+    const GAP = 16;
+    const CARD_W = 130;
+    const CARD_H = 155;
+    const cols = 3;
+    const totalW = cols * CARD_W + (cols - 1) * GAP;
+    const totalH = 2 * CARD_H + GAP;
+    const startX = (SCREEN_WIDTH - totalW) / 2;
+    const startY = (SCREEN_HEIGHT - totalH) / 2 + 20;
+
+    // 使用游戏墙砖背景色
+    ctx.fillStyle = C.wall;
+    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+    // 标题
+    ctx.fillStyle = '#5D4037';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillText('人有三急', SCREEN_WIDTH / 2, 25);
+    ctx.font = '16px sans-serif';
+    ctx.fillText('选择你的角色登场', SCREEN_WIDTH / 2, 58);
+
+    for (let i = 0; i < 6; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const cx = startX + col * (CARD_W + GAP) + CARD_W / 2;
+      const cy = startY + row * (CARD_H + GAP) + CARD_H / 2;
+      const cardX = cx - CARD_W / 2;
+      const cardY = cy - CARD_H / 2;
+
+      // 角色预览
+      if (i < 5) {
+        this.drawCharacterPreview(ctx, cx, cy - 8, PLAYER_PRESETS[i], 0.5);
+      } else {
+        // "随机"选项显示问号
+        ctx.fillStyle = '#999';
+        ctx.font = 'bold 48px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('?', cx, cy - 5);
+        ctx.font = '12px sans-serif';
+        ctx.fillStyle = '#888';
+        ctx.fillText('随机抽取', cx, cy + 35);
+      }
+
+      // 角色名称
+      ctx.fillStyle = '#5D4037';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(PLAYER_PRESETS[i].name, cx, cardY + CARD_H - 8);
+    }
+  }
+
+  /** 在选人卡片上绘制小尺寸角色预览 */
+  drawCharacterPreview(ctx, cx, cy, style, previewScale) {
+    const scale = (style.heightScale || 1) * previewScale;
+    const bf = [0.78, 1.0, 1.28][style.build] || 1.0;
+    const h = 96 * scale;
+    const feetY = cy + h / 2;
+
+    const hatTop   = feetY - h;
+    const headTop  = hatTop + Math.round(8 * scale);
+    const neckTop  = headTop + Math.round(18 * scale);
+    const bodyTop  = neckTop + Math.round(4 * scale);
+    const bodyBot  = bodyTop + Math.round(40 * scale);
+    const legTop   = bodyBot;
+    const legBot   = legTop + Math.round(20 * scale);
+
+    const skinColor = style.skin || C.skin;
+    const shirtColor = style.shirt || C.playerShirt;
+    const pantsColor = style.pants || C.playerPants;
+    const shoeColor = style.shoes || C.shoes;
+
+    const hw = PHW * bf * previewScale;
+    const shoulderW = Math.round(hw + 4 * previewScale);
+    const waistW = Math.round(hw - 2 * previewScale);
+    const armLen = Math.round(30 * scale);
+    const armW = Math.round(6 * bf * previewScale);
+
+    // 鞋
+    ctx.fillStyle = shoeColor;
+    ctx.fillRect(cx - Math.round(8 * bf * previewScale), legBot, Math.round(7 * bf * previewScale), Math.round(6 * scale));
+    ctx.fillRect(cx + Math.round(1 * bf * previewScale), legBot, Math.round(7 * bf * previewScale), Math.round(6 * scale));
+
+    // 裤腿
+    ctx.fillStyle = pantsColor;
+    const legW = Math.round(8 * bf * previewScale);
+    ctx.fillRect(cx - Math.round(9 * bf * previewScale), legTop, legW, Math.round(legBot - legTop));
+    ctx.fillRect(cx + Math.round(1 * bf * previewScale), legTop, legW, Math.round(legBot - legTop));
+
+    // 上衣
+    ctx.fillStyle = shirtColor;
+    ctx.beginPath();
+    ctx.moveTo(cx - shoulderW, bodyTop);
+    ctx.lineTo(cx + shoulderW, bodyTop);
+    ctx.lineTo(cx + waistW, bodyBot);
+    ctx.lineTo(cx - waistW, bodyBot);
+    ctx.closePath();
+    ctx.fill();
+
+    // 格子衫
+    if (style.isPlaid) {
+      ctx.strokeStyle = '#778899';
+      ctx.lineWidth = 1;
+      const step = Math.round(6 * bf * previewScale);
+      for (let x = cx - shoulderW; x <= cx + shoulderW; x += Math.max(step, 2)) {
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x), bodyTop);
+        ctx.lineTo(Math.round(x), bodyBot);
+        ctx.stroke();
+      }
+      for (let y = bodyTop; y <= bodyBot; y += Math.round(6 * scale)) {
+        ctx.beginPath();
+        ctx.moveTo(cx - shoulderW, Math.round(y));
+        ctx.lineTo(cx + shoulderW, Math.round(y));
+        ctx.stroke();
+      }
+    }
+
+    // 手臂
+    ctx.fillStyle = shirtColor;
+    ctx.fillRect(cx - shoulderW - armW, Math.round(bodyTop + 2 * scale), armW, armLen);
+    ctx.fillRect(cx + shoulderW, Math.round(bodyTop + 2 * scale), armW, armLen);
+
+    // 手
+    ctx.fillStyle = skinColor;
+    ctx.fillRect(cx - shoulderW - armW + 1, Math.round(bodyTop + 2 * scale + armLen - 6 * scale), Math.max(armW - 1, 1), Math.round(6 * scale));
+    ctx.fillRect(cx + shoulderW, Math.round(bodyTop + 2 * scale + armLen - 6 * scale), Math.max(armW - 1, 1), Math.round(6 * scale));
+
+    // 脖子
+    ctx.fillStyle = skinColor;
+    const neckW = Math.round(8 * bf * previewScale);
+    ctx.fillRect(cx - Math.round(neckW / 2), neckTop, neckW, Math.round(bodyTop - neckTop));
+
+    // 头
+    ctx.fillStyle = skinColor;
+    const headW = Math.round(20 * bf * previewScale);
+    const headH = Math.round(18 * scale);
+    ctx.fillRect(cx - Math.round(headW / 2), headTop, headW, headH);
+
+    // 头发
+    const hairColor = style.hair;
+    if (hairColor && style.hairStyle !== 'bald') {
+      ctx.fillStyle = hairColor;
+      if (style.hairStyle === 'crew') {
+        ctx.fillRect(cx - Math.round(headW / 2) + 1, headTop + 1, headW - 2, Math.round(3 * scale));
+      } else {
+        ctx.fillRect(cx - Math.round(headW / 2) + 1, headTop + 1, headW - 2, Math.round(5 * scale));
+      }
+    }
+
+    // 络腮胡
+    if (style.hasBeard) {
+      ctx.fillStyle = '#4A3728';
+      ctx.fillRect(cx - Math.round(headW / 2) + 3, Math.round(headTop + headH * 0.55), headW - 6, Math.round(8 * scale));
     }
   }
 
